@@ -1,12 +1,12 @@
-# openexperience Specification
+# openexperts Specification
 
 Version: `1.0`
 
 ## 1. Overview
 
-openexperience is an open format for packaging professional expertise into files that AI frameworks can consume.
+openexperts is an open format for packaging professional expertise into files that AI frameworks can consume.
 
-An experience package captures:
+An expert package captures:
 
 - Role judgment (how to think)
 - Decision heuristics (how to decide)
@@ -22,12 +22,12 @@ An experience package captures:
 
 ## 2. Package Structure
 
-An experience package is a directory with the following structure:
+An expert package is a directory with the following structure:
 
 ```text
-experience-package/
+expert-package/
   README.md
-  experience.yaml
+  expert.yaml
   orchestrator.md
   persona/
     identity.md
@@ -45,7 +45,7 @@ experience-package/
 ### Required Components
 
 - `README.md`
-- `experience.yaml`
+- `expert.yaml`
 - `orchestrator.md`
 - `persona/` (at least one persona file)
 - `functions/` (at least one function file)
@@ -62,7 +62,7 @@ experience-package/
 - Function and process files use markdown with YAML frontmatter.
 - Tool files use YAML.
 
-## 3. Manifest (`experience.yaml`)
+## 3. Manifest (`expert.yaml`)
 
 The manifest is the package index and metadata source.
 
@@ -105,7 +105,7 @@ spec: "1.0"
 name: radiant-sales-expert
 version: "0.1.0"
 description: B2B sales expertise for inbound deal triage and next-best-action
-author: Openexperience Community
+author: Openexperts Community
 license: MIT
 
 requires:
@@ -136,7 +136,7 @@ components:
 
 The orchestrator is the package entry point. It tells the agent:
 
-- When to use this experience
+- When to use this expert package
 - Which functions or processes to reach for
 - How to route between scenarios
 
@@ -430,7 +430,7 @@ operations:
 
 ### Runtime Binding
 
-Frameworks bind tool names declared in experience files to concrete implementations (for example MCP servers, API clients, or internal services).
+Frameworks bind tool names declared in expert package files to concrete implementations (for example MCP servers, API clients, or internal services).
 
 ## 9. Knowledge (`knowledge/*.md`)
 
@@ -464,7 +464,7 @@ This spec does not require a workflow engine. It defines portable artifacts that
 
 ### Recommended Runtime Flow
 
-1. Parse `experience.yaml` to discover package metadata and components.
+1. Parse `expert.yaml` to discover package metadata and components.
 2. Load `orchestrator.md` and persona files into persistent agent context.
 3. Register functions/processes as readable capabilities (for example skills).
 4. Bind abstract tools to concrete integrations.
@@ -481,7 +481,7 @@ This spec does not require a workflow engine. It defines portable artifacts that
 
 ### Spec Version
 
-Packages should include a `spec` field in `experience.yaml`.
+Packages should include a `spec` field in `expert.yaml`.
 
 Current spec version: `1.0`.
 
@@ -497,7 +497,7 @@ Recommended interpretation:
 
 ## Non-Goals
 
-To keep openexperience portable and simple, this specification intentionally does not define:
+To keep openexperts portable and simple, this specification intentionally does not define:
 
 - Template interpolation syntax (for example `{{step.output}}`)
 - A typed executable workflow DSL
