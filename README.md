@@ -24,8 +24,9 @@ An expert package is a directory of markdown and YAML files:
 | **Processes**    | `processes/*.md`  | Multi-step workflows of processes that map across multiple functions |
 | **Tools**        | `tools/*.yaml`    | Abstract interfaces to external systems                            |
 | **Knowledge**    | `knowledge/*.md`  | Reference material (methodologies, frameworks, guidelines)         |
+| **State**        | `state/*.md`      | Builder-defined local storage files the agent reads and writes     |
 
-Only `expert.yaml`, `orchestrator.md`, `functions/`, `persona/`, and `README.md` are required. Everything else is opt-in based on what the expertise demands.
+Only `expert.yaml`, `orchestrator.md`, `functions/`, `persona/`, and `README.md` are required. Everything else is opt-in based on what the expertise demands — including `state/`, which is only needed if the expert is designed to maintain local state between runs.
 
 ## How It Works
 
@@ -59,6 +60,7 @@ The framework reads the package files and uses them at runtime:
 - **Processes** orchestrate multi-step workflows (processes, decision heuristics etc) across functions
 - **Tools** declare what external systems the package needs to communicate with (e.g. CRM, email, calendar) you bind them to your implementations
 - **Knowledge** becomes reference material loaded into context
+- **State** becomes local read/write storage — the builder decides what files exist, what they track, and how the agent uses them
 
 ### 4. The agent has professional judgment
 

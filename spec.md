@@ -40,6 +40,8 @@ expert-package/
     *.yaml
   knowledge/            # optional
     *.md
+  state/                # optional
+    *.md
 ```
 
 ### Required Components
@@ -55,6 +57,7 @@ expert-package/
 - `processes/`
 - `tools/`
 - `knowledge/`
+- `state/`
 
 ### Naming Conventions
 
@@ -130,6 +133,9 @@ components:
   knowledge:
     - knowledge/meddpicc.md
     - knowledge/competitive-battle-cards.md
+  state:
+    - state/pipeline.md
+    - state/session-notes.md
 ```
 
 ## 4. Orchestrator (`orchestrator.md`)
@@ -458,7 +464,69 @@ Frameworks may:
 
 The strategy should consider context budget and file size.
 
-## 10. Consumption Model (Framework Authors)
+## 10. State (`state/*.md`)
+
+State files are builder-defined markdown templates for local read/write storage. The expert builder decides what state the expert tracks, what structure it uses, and how the agent should interact with it. The agent reads from and writes to these files at runtime.
+
+This is intentionally opinionated: the builder designs the files, not the framework. State files are not generic scratch space — they represent deliberate, named storage that the builder has decided this expert needs.
+
+### Format
+
+- Plain markdown
+- Optional YAML frontmatter
+
+### State Frontmatter Fields
+
+Optional:
+
+- `name` (string)
+- `description` (string)
+- `scope` (string): `session` for state that resets each run, `persistent` for state retained across runs. Defaults to `persistent`.
+
+### Example State File
+
+```markdown
+---
+name: pipeline
+description: Running tracker of active deals and risks
+scope: persistent
+---
+
+## Active Deals
+
+<!-- Agent writes active deal summaries here -->
+
+## Deal Risks
+
+<!-- Agent writes flagged risks, stalled deals, or churn signals here -->
+
+## Recently Closed
+
+<!-- Agent writes recently closed deals here -->
+```
+
+### Referencing State Files
+
+Functions and processes that need to read or write state should reference the file path explicitly in their body or frontmatter. The builder decides which files each function or process uses.
+
+Example in a function body:
+
+```markdown
+Before evaluating next action, read `./state/pipeline.md` to load current deal context.
+After determining next action, update `./state/pipeline.md` with any changes to deal status or risk flags.
+```
+
+### Runtime Consumption
+
+Frameworks should:
+
+- Make state files readable and writable by the agent at runtime
+- Preserve state file contents across agent calls when `scope` is `persistent`
+- Reset state files to their template contents between sessions when `scope` is `session`
+
+The framework should not impose a structure on state files. The builder's template is the contract.
+
+## 11. Consumption Model (Framework Authors)
 
 This spec does not require a workflow engine. It defines portable artifacts that frameworks can map into their own agent runtime model.
 
@@ -468,8 +536,9 @@ This spec does not require a workflow engine. It defines portable artifacts that
 2. Load `orchestrator.md` and persona files into persistent agent context.
 3. Register functions/processes as readable capabilities (for example skills).
 4. Bind abstract tools to concrete integrations.
-5. At runtime, the agent reads the relevant process, follows checklist steps, reads functions on demand, calls tools, and returns outputs.
-6. Optionally use scratchpad files for intermediate process state.
+5. Initialize state files: provision `state/*.md` files at a known writable location, resetting any `scope: session` files to their template contents.
+6. At runtime, the agent reads the relevant process, follows checklist steps, reads functions on demand, calls tools, reads and writes state files as instructed, and returns outputs.
+7. Optionally use scratchpad files for intermediate process state.
 
 ### Portability Rules
 
@@ -477,7 +546,7 @@ This spec does not require a workflow engine. It defines portable artifacts that
 - A consumer framework should preserve file semantics and intent.
 - Packages should remain valid without framework-specific code.
 
-## 11. Versioning
+## 12. Versioning
 
 ### Spec Version
 
