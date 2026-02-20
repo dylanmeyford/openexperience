@@ -42,6 +42,8 @@ expert-package/
     *.md
   state/                # optional
     *.md
+  scratch/              # runtime (auto-created, not committed)
+    *.md
 ```
 
 ### Required Components
@@ -58,6 +60,7 @@ expert-package/
 - `tools/`
 - `knowledge/`
 - `state/`
+- `scratch/` (runtime-generated)
 
 ### Naming Conventions
 
@@ -85,7 +88,9 @@ The manifest is the package index and metadata source.
 - `triggers` (array): automation entry points that invoke processes on events.
 - `concurrency` (object): package-level concurrency defaults inherited by all triggers.
 - `execution` (object): package-level process execution defaults inherited by all processes.
+- `delivery` (object): package-level output delivery defaults inherited by all processes.
 - `policy` (object): action governance rules declaring which tool operations require human approval.
+- `outputs` (array): primary deliverables this expert produces.
 
 ### `requires.tools`
 
@@ -139,7 +144,7 @@ concurrency:
 #### Execution Fields
 
 - `timeout` (string): maximum wall-clock time a process may run before the framework considers it failed. Use human-readable durations such as `5m`, `30m`, `2h`. Defaults to no timeout if omitted.
-- `idempotent` (boolean): declares whether it is safe to re-run the full process from step 1 on failure. When `true`, the framework may retry without risk of duplicate side-effects. When `false`, the framework must use scratchpad-based resumption rather than a full restart. Defaults to `false`.
+- `idempotent` (boolean): declares whether it is safe to re-run the full process from step 1 on failure. When `true`, the framework may retry without risk of duplicate side-effects. When `false`, the framework should use execution-log-guided resumption rather than a full restart. Defaults to `false`.
 - `retry` (object): retry policy applied when a process fails.
   - `max_attempts` (integer): maximum number of attempts including the first. Defaults to `1` (no retry).
   - `backoff` (string): `fixed` or `exponential`. Defaults to `exponential`.
@@ -158,7 +163,7 @@ Without explicit execution policy, a failed process silently disappears. For a s
 
 ```yaml
 # Processes get 10 minutes, retry up to 3 times with exponential backoff,
-# resume from scratchpad on retry, and escalate if still failing.
+# resume using execution logs (and scratchpad context), and escalate if still failing.
 execution:
   timeout: 10m
   idempotent: false
@@ -168,6 +173,25 @@ execution:
     delay: 30s
   on_failure: escalate
   resume_from_execution_log: true
+```
+
+### `delivery`
+
+`delivery` sets default output delivery behavior for all processes in the package. Individual processes inherit these defaults and may override them in process frontmatter.
+
+#### Delivery Fields
+
+- `format` (string): `narrative`, `structured`, or `both`. Defaults to `both`.
+- `channel` (string): output destination. `main` delivers to the primary agent session and chat channel. Defaults to `main`.
+- `sla_breach` (string): action when expected delivery SLA is exceeded. One of `warn` or `escalate`. Defaults to `warn`.
+
+#### Example
+
+```yaml
+delivery:
+  format: both
+  channel: main
+  sla_breach: warn
 ```
 
 ### `policy`
@@ -187,6 +211,8 @@ Every tool operation has an approval tier. There are three tiers:
 - `approval` (object):
   - `default` (string): approval tier applied to all tool operations that do not declare their own. One of `auto`, `confirm`, `manual`. Defaults to `confirm` if omitted — requiring human approval is the safe default for any unknown operation.
   - `overrides` (object): per-operation tier overrides. Keys are `tool_name.operation_name`; values are `auto`, `confirm`, or `manual`. Use to tighten or relax the default for specific operations.
+  - `timeout` (string): how long to wait for human approval on a `confirm` operation before timeout handling is applied (for example `24h`). Defaults to no timeout if omitted.
+  - `on_timeout` (string): action when an approval times out. One of `reject` (treat as rejected and follow process failure handling) or `escalate`. Defaults to `reject`.
 
 #### Why `confirm` is the safe default
 
@@ -254,6 +280,7 @@ Optional:
   - `serial`: all invocations of this trigger queue globally and run one at a time. Use when overlap would cause duplicate work or corrupted output, such as a nightly report that must not run twice.
   - `serial_per_key`: invocations queue per a grouping key derived from the trigger payload. Invocations with the same key run in order; invocations with different keys run in parallel. Use for entity-scoped workflows such as a sales agent that must process emails for the same deal sequentially, while handling different deals concurrently.
 - `concurrency_key` (string): overrides the package-level `concurrency.key` for this trigger. Required when this trigger's effective concurrency mode is `serial_per_key` and no package-level key is set. A dot-notation path into the trigger payload identifying the grouping field (for example `contact_id`, `deal_id`, `thread_id`).
+- `payload_mapping` (object): maps trigger payload fields to process input names. Keys are process `inputs` names; values are dot-notation paths in the incoming payload.
 - `description` (string): human-readable explanation of when this trigger fires.
 
 #### Trigger Types
@@ -277,6 +304,8 @@ triggers:
     session: isolated
     concurrency: serial_per_key
     concurrency_key: contact_id
+    payload_mapping:
+      message_id: messages[0].id
     process: inbound-email-triage
     description: Fires when a new email arrives in the monitored inbox.
 
@@ -308,6 +337,8 @@ triggers:
     session: isolated
     concurrency: serial_per_key
     concurrency_key: sender_id
+    payload_mapping:
+      sender_id: messages[0].from
     process: handle-linkedin-dm
     description: Fires when a new LinkedIn DM is received. Requires a LinkedIn tool binding.
 ```
@@ -315,6 +346,16 @@ triggers:
 ### `components`
 
 `components` lists files by component type so frameworks can discover them without scanning every file.
+
+Valid keys:
+
+- `orchestrator` (string): path to `orchestrator.md`.
+- `persona` (array of strings): persona file paths.
+- `functions` (array of strings): function file paths.
+- `processes` (array of strings): process file paths.
+- `tools` (array of strings): tool declaration file paths.
+- `knowledge` (array of strings): knowledge file paths.
+- `state` (array of strings): state template file paths.
 
 ### Complete Example Manifest
 
@@ -342,6 +383,8 @@ concurrency:
 policy:
   approval:
     default: confirm
+    timeout: 24h
+    on_timeout: escalate
     overrides:
       crm.get_contact: auto
       crm.get_deal: auto
@@ -366,12 +409,26 @@ execution:
   on_failure: escalate
   resume_from_execution_log: true
 
+# Process output defaults (can be overridden per process).
+delivery:
+  format: both
+  channel: main
+  sla_breach: warn
+
+# Primary deliverables produced by this expert.
+outputs:
+  - email drafts
+  - deal triage reports
+  - pipeline summaries
+
 triggers:
   - name: new_email
     type: webhook
     preset: gmail
     dedupe_key: message_id
     session: isolated
+    payload_mapping:
+      message_id: messages[0].id
     process: inbound-email-triage
     description: Fires when a new email arrives in the monitored inbox.
 
@@ -463,6 +520,14 @@ Optional:
 - `outputs` (array of objects with `name`, `type`, optional `description`, optional `enum`)
 - `tools` (array of abstract tool names)
 - `knowledge` (array of knowledge file references)
+- `tags` (array of strings): categorization for indexing and routing
+
+Functions that drive escalation behavior should include a `confidence` output field with:
+
+- `type: string`
+- `enum: [high, medium, low]`
+
+Frameworks can use this convention to enforce `policy.escalation.on_low_confidence`.
 
 ### Function Body Requirements
 
@@ -478,6 +543,7 @@ The markdown body should include:
 ---
 name: classify-email-intent
 description: Determine the intent and urgency of an inbound email
+tags: [analysis, classification, email]
 inputs:
   - name: email_body
     type: string
@@ -493,6 +559,9 @@ outputs:
     enum: [high, medium, low]
   - name: reasoning
     type: string
+  - name: confidence
+    type: string
+    enum: [high, medium, low]
 tools:
   - crm
 knowledge:
@@ -515,6 +584,7 @@ Return:
 - Intent
 - Urgency
 - Reasoning (1-2 sentences)
+- Confidence
 ```
 
 ### Runtime Consumption
@@ -536,12 +606,15 @@ Required:
 
 Optional:
 
-- `trigger` (string): event that commonly initiates the process
+- `trigger` (string): event label that commonly initiates the process.
+  This field must match a `triggers[].name` entry in `expert.yaml`. The manifest trigger defines invocation mechanics; this process field declares which trigger this process responds to.
 - `inputs` (array): starting data requirements
 - `outputs` (array): expected final outputs
 - `functions` (array of function names): discovery and indexing support
 - `tools` (array of abstract tool names): discovery and indexing support
 - `scratchpad` (string): recommended working file path pattern
+- `tags` (array of strings): categorization for indexing and routing
+- `context` (array): file paths to preload before step execution (for example state or knowledge files)
 - `execution` (object): overrides the package-level execution defaults for this process. Supports the same fields as the package-level `execution` block (`timeout`, `idempotent`, `retry`, `on_failure`, `resume_from_execution_log`). Only specified fields are overridden; unspecified fields inherit from the package default.
 - `delivery` (object): declares how the process output is delivered when it completes.
   - `format` (string): `narrative` (a human-readable chat summary), `structured` (the typed `outputs` object), or `both`. Defaults to `both`.
@@ -575,6 +648,17 @@ Processes that declare a `scratchpad` path must instruct the agent to write inte
 
 The first step of any resumable process must always be: create (or read if it already exists) the scratchpad file.
 
+### Dry Run Mode
+
+Frameworks may invoke any process in dry-run mode for testing and safety checks.
+
+In dry-run mode:
+
+- The agent narrates intended actions step-by-step.
+- `auto` read operations are allowed.
+- `confirm` and `manual` operations are not executed.
+- The process returns a planned execution report instead of side-effecting changes.
+
 ### Example Process
 
 ```markdown
@@ -596,6 +680,10 @@ functions:
   - classify-email-intent
   - determine-next-action
   - compose-response
+tags: [inbound, triage, sales]
+context:
+  - state/pipeline.md
+  - knowledge/meddpicc.md
 tools:
   - email
   - crm
@@ -776,7 +864,15 @@ Examples:
 ### Format
 
 - Plain markdown
-- Optional frontmatter fields such as `name`, `description`, `tags`
+- Optional frontmatter fields such as `name`, `description`, `tags`, `type`
+
+`type` values:
+
+- `static`: stable references such as methodologies, templates, and playbooks.
+- `dynamic`: frequently updated material such as market updates or competitor research.
+- `private`: sensitive internal information that should not be surfaced in indexes or logs.
+
+If omitted, `type` defaults to `static`.
 
 ### Runtime Consumption
 
@@ -855,13 +951,18 @@ This spec does not require a workflow engine. It defines portable artifacts that
 
 ### Recommended Runtime Flow
 
-1. Parse `expert.yaml` to discover package metadata and components.
+1. Parse `expert.yaml`, validate required fields, and load component indexes.
 2. Load `orchestrator.md` and persona files into persistent agent context.
-3. Register functions/processes as readable capabilities (for example skills).
-4. Bind abstract tools to concrete integrations.
-5. Initialize state files: provision `state/*.md` files at a known writable location, resetting any `scope: session` files to their template contents.
-6. At runtime, the agent reads the relevant process, follows checklist steps, reads functions on demand, calls tools, reads and writes state files as instructed, and returns outputs.
-7. Optionally use scratchpad files for intermediate process state.
+3. Register functions and processes as on-demand readable capabilities.
+4. Bind abstract tools to concrete integrations and verify `requires.tools` are satisfied.
+5. Initialize state templates at runtime locations; reset `scope: session` files between sessions.
+6. Apply package-level defaults (`concurrency`, `execution`, `delivery`, and `policy`) to all triggers and processes.
+7. Wire manifest triggers by type (`webhook`, `cron`, `channel`) and register their handlers.
+8. On trigger invocation, apply effective concurrency policy (`parallel`, `serial`, `serial_per_key`) and queue or start execution.
+9. Resolve process inputs using `payload_mapping` (or raw payload fallback), preload any declared `context` files, and run the process checklist.
+10. Enforce approval policy for each tool operation (`auto`, `confirm`, `manual`) including approval timeout behavior.
+11. On completion, deliver outputs using effective process `delivery` settings and emit escalation notifications when configured.
+12. On failure or low confidence, apply `execution.retry`, `resume_from_execution_log`, `on_failure`, and `policy.escalation` rules.
 
 ### Portability Rules
 
@@ -888,6 +989,10 @@ Recommended interpretation:
 - `PATCH`: backward-compatible fixes and clarifications
 
 ## Non-Goals
+
+### Multi-Expert Coordination
+
+Coordination between multiple expert packages (for example, sales handing off to legal review) is not defined by this spec. The recommended pattern is hub-and-spoke routing through the main agent session, which dispatches tasks to expert sessions and synthesizes outputs. Direct expert-to-expert communication is framework-specific and out of scope.
 
 To keep openexperts portable and simple, this specification intentionally does not define:
 
