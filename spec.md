@@ -545,6 +545,9 @@ Optional:
 - `tools` (array of abstract tool names)
 - `knowledge` (array of knowledge file references)
 - `tags` (array of strings): categorization for indexing and routing
+- `session` (string): function execution mode. One of:
+  - `inline` (default): execute in the current agent session.
+  - `isolated`: execute in a fresh child sub-agent session and return only declared outputs to the caller.
 
 Functions that drive escalation behavior should include a `confidence` output field with:
 
@@ -614,6 +617,15 @@ Return:
 ### Runtime Consumption
 
 Frameworks should expose functions as readable/invokable capabilities (for example, skills) and load them on demand instead of always preloading all function content.
+
+When `session: isolated` is set on a function:
+
+- The framework should execute that function in a new child session.
+- The child session input should be the function's declared `inputs` values.
+- The caller should receive only the function's declared `outputs` values plus any framework metadata.
+- Child session working context is not merged back into the caller session.
+
+Frameworks may also provide runtime overrides (for example, force `isolated` for specific functions), but package-level function frontmatter remains the canonical default.
 
 ## 7. Processes (`processes/*.md`)
 

@@ -308,6 +308,23 @@ The loader wraps each process invocation with execution policy:
 
 Process-level `execution` overrides (from process frontmatter) take precedence over these package defaults for the specific process.
 
+### Function Invocation Isolation
+
+Functions default to inline execution in the current expert session. If a function declares `session: isolated`, the loader runs it in an ephemeral child sub-agent session.
+
+For `session: isolated` function calls:
+
+1. Resolve the function file and parse frontmatter (`inputs`, `outputs`, `tools`, `knowledge`).
+2. Spawn a child session with:
+   - Function body as the primary instruction prompt
+   - A compact runtime policy block (approval tiers, escalation behavior)
+   - Access to only the tools and files required by that function
+3. Send the resolved function inputs as the invocation payload.
+4. Validate and return only declared outputs (plus framework metadata like timing/confidence if available) to the parent process session.
+5. Terminate the child session after completion; do not merge child working context into the parent.
+
+This pattern keeps parent process context compact while preserving strong input/output contracts between function calls.
+
 ### Delivery Enforcement
 
 When a process completes:
@@ -495,9 +512,9 @@ openclaw expert validate radiant-sales-expert
   → Fetch email via email.get_email (auto → executes immediately)
   → Fetch contact via crm.get_contact (auto → executes immediately)
   → Fetch deal via crm.get_deal (auto → executes immediately)
-  → Read and apply classify-email-intent → buying_signal, high urgency
-  → Read and apply determine-next-action → schedule demo, multi-thread
-  → Read and apply compose-response → draft email
+  → Execute classify-email-intent (inline or isolated per function session mode) → buying_signal, high urgency
+  → Execute determine-next-action (inline or isolated per function session mode) → schedule demo, multi-thread
+  → Execute compose-response (inline or isolated per function session mode) → draft email
   → email.send is MANUAL tier → draft delivered to user, step marked done
   → crm.create_note (auto → executes immediately, logs triage summary)
   → Update state/pipeline.md with deal movement
