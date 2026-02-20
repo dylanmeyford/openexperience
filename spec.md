@@ -85,6 +85,7 @@ The manifest is the package index and metadata source.
 - `triggers` (array): automation entry points that invoke processes on events.
 - `concurrency` (object): package-level concurrency defaults inherited by all triggers.
 - `execution` (object): package-level process execution defaults inherited by all processes.
+- `policy` (object): action governance rules declaring which tool operations require human approval.
 
 ### `requires.tools`
 
@@ -167,6 +168,63 @@ execution:
     delay: 30s
   on_failure: escalate
   resume_from_execution_log: true
+```
+
+### `policy`
+
+`policy` declares the governance rules for agent actions in this package. It defines which tool operations require human approval before executing, and what the default approval tier is for operations that do not declare their own.
+
+#### Approval Tiers
+
+Every tool operation has an approval tier. There are three tiers:
+
+- `auto`: the agent executes the operation immediately with no human involvement. Use for reads, internal state updates, and any action with no external side-effects.
+- `confirm`: the agent pauses before executing, presents the proposed action to the user via the main chat channel, and waits for explicit approval. If approved, execution continues. If rejected or timed out, the process follows the `on_failure` policy. Use for external-facing writes such as updating a deal stage, scheduling a meeting, or creating a formal record.
+- `manual`: the agent prepares and drafts the action but never executes it. The completed draft is delivered to the human for them to execute themselves. The process considers this step done once the draft is delivered. Use for actions that should never be automated, such as sending an external email, posting to social media, or committing to pricing.
+
+#### Policy Fields
+
+- `approval` (object):
+  - `default` (string): approval tier applied to all tool operations that do not declare their own. One of `auto`, `confirm`, `manual`. Defaults to `confirm` if omitted — requiring human approval is the safe default for any unknown operation.
+  - `overrides` (object): per-operation tier overrides. Keys are `tool_name.operation_name`; values are `auto`, `confirm`, or `manual`. Use to tighten or relax the default for specific operations.
+
+#### Why `confirm` is the safe default
+
+An expert package that omits a `policy` block, or omits an operation from `overrides`, defaults to `confirm`. This means unknown or undeclared operations always pause for human review. Package authors opt *down* to `auto` for safe operations and opt *up* to `manual` for irreversible ones — they never accidentally grant silent write access.
+
+#### `policy.escalation`
+
+`escalation` defines how the expert hands off to a human when it cannot or should not proceed autonomously.
+
+Fields:
+
+- `channel` (string): where escalation messages are delivered. Defaults to `main` (the primary agent session and chat channel).
+- `on_low_confidence` (boolean): when `true`, processes should escalate rather than act when the agent judges its own output confidence as low. The agent is responsible for flagging low confidence in its reasoning; this setting tells it what to do when it does. Defaults to `true`.
+- `on_manual_ready` (boolean): when `true`, the framework notifies the escalation channel whenever a `manual`-tier action draft is ready for human execution. Defaults to `true`.
+
+Escalation messages must include:
+- Which process escalated and why
+- The relevant context (contact, deal, message) so the human can act immediately
+- The agent's recommended action, even if it cannot execute it autonomously
+
+#### Example
+
+```yaml
+policy:
+  approval:
+    default: confirm
+    overrides:
+      crm.get_contact: auto
+      crm.get_deal: auto
+      crm.create_note: auto
+      email.get_email: auto
+      crm.update_deal_stage: confirm
+      email.send: manual
+      calendar.schedule_meeting: manual
+  escalation:
+    channel: main
+    on_low_confidence: true
+    on_manual_ready: true
 ```
 
 ### `triggers`
@@ -278,6 +336,24 @@ requires:
 concurrency:
   default: serial_per_key
   key: contact_id
+
+# Reads and internal notes are auto. Writes need confirmation. External sends are manual.
+# Escalate to main chat when confidence is low or a manual draft is ready.
+policy:
+  approval:
+    default: confirm
+    overrides:
+      crm.get_contact: auto
+      crm.get_deal: auto
+      crm.create_note: auto
+      email.get_email: auto
+      crm.update_deal_stage: confirm
+      email.send: manual
+      calendar.schedule_meeting: manual
+  escalation:
+    channel: main
+    on_low_confidence: true
+    on_manual_ready: true
 
 # All processes get 10 minutes, retry 3 times, resume from scratchpad, escalate on failure.
 execution:
@@ -467,6 +543,11 @@ Optional:
 - `tools` (array of abstract tool names): discovery and indexing support
 - `scratchpad` (string): recommended working file path pattern
 - `execution` (object): overrides the package-level execution defaults for this process. Supports the same fields as the package-level `execution` block (`timeout`, `idempotent`, `retry`, `on_failure`, `resume_from_execution_log`). Only specified fields are overridden; unspecified fields inherit from the package default.
+- `delivery` (object): declares how the process output is delivered when it completes.
+  - `format` (string): `narrative` (a human-readable chat summary), `structured` (the typed `outputs` object), or `both`. Defaults to `both`.
+  - `channel` (string): where the output is delivered. `main` delivers to the primary agent session and chat. Defaults to `main`.
+  - `sla` (string): expected wall-clock time from trigger to delivery (for example `5m`, `30m`). Used by the framework to detect slow runs and warn the user. Not a hard timeout — use `execution.timeout` for that.
+  - `sla_breach` (string): action taken if `sla` is exceeded before the process completes. One of `warn` (notify the user that the process is running slow but let it continue) or `escalate` (notify and flag for human attention). Defaults to `warn`.
 
 ### Process Body Requirements
 
@@ -522,6 +603,11 @@ scratchpad: ./scratch/triage-{message_id}.md
 execution:
   timeout: 10m
   # inherits retry and on_failure from package-level execution defaults
+delivery:
+  format: both
+  channel: main
+  sla: 5m
+  sla_breach: escalate
 ---
 
 ## Inbound Email Triage
@@ -564,6 +650,7 @@ Each operation includes:
 
 - `name` (string)
 - `description` (string)
+- `approval` (string): the natural approval tier for this operation. One of `auto`, `confirm`, or `manual`. Declaring this on the operation makes the risk level explicit and self-documenting, independent of the package-level policy. The package `policy.approval.overrides` can still override this value at runtime.
 - `input` (object shape using simple type declarations)
 - `output` (object shape using simple type declarations)
 
@@ -587,6 +674,7 @@ description: Customer relationship management interface
 operations:
   - name: get_contact
     description: Retrieve a contact by email address
+    approval: auto
     input:
       type: object
       properties:
@@ -612,6 +700,7 @@ operations:
 
   - name: get_deal
     description: Retrieve active deal details for a contact
+    approval: auto
     input:
       type: object
       properties:
@@ -631,6 +720,40 @@ operations:
           items:
             type: string
         close_date:
+          type: string
+
+  - name: update_deal_stage
+    description: Update the stage of an active deal
+    approval: confirm
+    input:
+      type: object
+      properties:
+        deal_id:
+          type: string
+        stage:
+          type: string
+        reason:
+          type: string
+    output:
+      type: object
+      properties:
+        success:
+          type: boolean
+
+  - name: create_note
+    description: Create a note on a contact record
+    approval: auto
+    input:
+      type: object
+      properties:
+        contact_id:
+          type: string
+        body:
+          type: string
+    output:
+      type: object
+      properties:
+        note_id:
           type: string
 ```
 
