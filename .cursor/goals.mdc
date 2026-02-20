@@ -4,7 +4,12 @@ alwaysApply: true
 
 Our goal is to build a 'expert packages' SPEC/standard, that can be installed into AI agents (such as OpenClaw) to allow capable agents to become domain experts.
 
-That is, turn a capable model such as Claude Opus 4.6 into an expert b2b sales rep who can manage your sales for you, interact with external API's and basically, do your job.
+For example, an expoert package could turn a capable model such as Claude Opus 4.6 into:
+1. an expert b2b sales rep who can manage your sales for you, interact with external API's and basically, do your job.
+2. an expert Linkedin marketer who researches trends, follows your value props, drafts Linkedin posts and schedules them for you.
+3. an expert scientific researcher, who looks up research, cross references and looks for novel connections - documenting it's process in your preferred notetaking app.
+4. an expert legal advisor who examines your new situation in your legal duristiction, examines known precedents and draft contracts for you.
+5. a doctor who understands your medical history, stays up to date on research that might impact you, and keeps a running timeline of your medical issues.
 
 This repo is for THAT only.
 
